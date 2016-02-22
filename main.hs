@@ -2,6 +2,7 @@
 
 data Val = IntVal Integer
 		| BoolVal Bool
+		| ClosureVal String Exp Env
 	deriving (Show,Eq)
 
 data Exp = IntExp Integer
@@ -10,6 +11,8 @@ data Exp = IntExp Integer
 			| VarExp String
 			| IfExp Exp Exp Exp
 			| LetExp String Exp Exp
+			| FuncExp String Exp
+			| AppExp Exp Exp
 	deriving (Show,Eq)
 
 
@@ -63,6 +66,15 @@ eval (IfExp c t e) env =
 eval (LetExp v e1 e2) env =
 	let v1 = eval e1 env
 	in eval e2 ((v,v1):env)
+
+
+eval (FunExp v e1) env =
+	ClosureVal v e1 env
+
+eval (AppExp e1 e2) env =
+	let ClosureVal v e3 cenv = eval e1 env
+		arg = eval e2 env
+	in eval e3 ((v,arg):cenv)
 
 getInt (IntVal i) = i
 getInt _ = 0
