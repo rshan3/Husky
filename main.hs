@@ -1,29 +1,24 @@
+{-----------------------------------
+ - Interpreter.hs
+ - v1.1
+ -----------------------------------}
 
+module Interpreter where
 
-data Val = IntVal Integer
-		| BoolVal Bool
-		| ClosureVal String Exp Env
-	deriving (Show,Eq)
+-- Language Representation
+import Data.HashMap.Strict as H
+import Text.ParserCombinators.Parsec
+import Parser
 
-data Exp = IntExp Integer
-			| IntOpExp String Exp Exp
-			| CompOpExp String Exp Exp
-			| VarExp String
-			| IfExp Exp Exp Exp
-			| LetExp String Exp Exp
-			| FuncExp String Exp
-			| AppExp Exp Exp
-	deriving (Show,Eq)
+liftIntOp op (IntVal x) (IntVal y) = IntVal $ op x y
+liftIntOp _ _ _ = ExnVal "Cannot lift"
 
-data Tree a = Node a (Tree a) (Tree a)
-            | Empty
-    deriving Show
+liftBoolOp op (BoolVal x) (BoolVal y) = BoolVal $ op x y
+liftBool _ _ _ = ExnVal "Cannot lift"
 
-add elt Empty = Node elt Empty Empty
-add elt (Node x left right)
-   | elt < x   = Node x (add elt left) right
-   | otherwise = Node x left (add elt right)
-
+liftCompOp :: (Int -> Int -> Bool) -> Val -> Val -> Val
+liftCompOp op (IntVal x) (IntVal y) = BoolVal $ op x y
+liftCompOp _ _ _ = ExnVal "Cannot lift"
 
 type Env = [(String,Val)]
 type IntOpEnv = [(String,Integer -> Integer -> Integer)]
@@ -47,45 +42,85 @@ liftCompOp f (IntVal i1) (IntVal i2) = BoolVal (f i1 i2)
 liftCompOp f _ _ = BoolVal False
 
 
+{-----------------------------------
+ - eval: The Evaluator
+ -----------------------------------}
 eval :: Exp -> Env -> Val
-eval (IntExp i) _ = IntVal i
-eval (VarExp s) env =
-	let Just v = lookup s env
-	in v
 
-eval (CompOpExp op e1 e2) env =
-  let v1 = eval e1 env
-      v2 = eval e2 env
-      Just f = lookup op compOps
-  in liftCompOp f v1 v2
+eval (IntExp k) env = IntVal k
+
+eval (BoolExp e) env = BoolVal e
+
+eval (VarExp e) env =
+   case H.lookup e env of
+     Just v -> v
+     Nothing -> ExnVal "No match in env"
 
 eval (IntOpExp op e1 e2) env =
   let v1 = eval e1 env
       v2 = eval e2 env
-      Just f = lookup op intOps
+      Just f = H.lookup op intOps
   in liftIntOp f v1 v2
 
+eval (BoolOpExp op e1 e2) env =
+  let v1 = eval e1 env
+      v2 = eval e2 env
+      Just f = H.lookup op boolOps
+  in liftBoolOp f v1 v2
 
-eval (IfExp c t e) env =
-	case (eval c env) of
-		BoolVal True -> eval t env
-		_ -> eval e env
+eval (CompOpExp op e1 e2) env =
+  let v1 = eval e1 env
+      v2 = eval e2 env
+      Just f = H.lookup op compOps
+  in liftCompOp f v1 v2
 
-
-eval (LetExp v e1 e2) env =
-	let v1 = eval e1 env
-	in eval e2 ((v,v1):env)
-
-
-eval (FunExp v e1) env =
-	ClosureVal v e1 env
-
-eval (AppExp e1 e2) env =
-	let ClosureVal v e3 cenv = eval e1 env
-		arg = eval e2 env
-	in eval e3 ((v,arg):cenv)
-
-getInt (IntVal i) = i
-getInt _ = 0
+--TODO: Handling functions and closures
 
 
+{-----------------------------------
+ - exec
+ - env is the map of current available var
+ - penv is for the procedure environment
+ -----------------------------------}
+exec :: Stmt -> PEnv -> Env -> Result
+exec (PrintStmt e) penv env = (val, penv, env)
+   where val = show $ eval e env
+
+exec (SeqStmt [s]) penv env = exec s penv env
+exec (SeqStmt (x:xs)) penv env =
+    let (p1,penv1,env1) = exec x penv env
+        (p2,penv2,env2) = exec (SeqStmt xs) penv1 env1
+    in (p1++p2,penv2,env2)
+
+exec (IfStmt e1 s2 s3) penv env =
+    case eval e1 env of
+      BoolVal True -> exec s2 penv env
+      _ -> exec s3 penv env
+
+exec (SetStmt var s) penv env =
+    let v = eval s env
+    in ("",penv,H.insert var v env)
+
+--TODO: Call Statement execution
+
+{-----------------------------------
+ - repl
+ -----------------------------------}
+repl :: PEnv -> Env -> [String] -> String -> IO Result
+repl penv env [] _ =
+  do putStr "> "
+     input <- getLine
+     case parse stmt "stdin" input of
+        Right QuitStmt -> do putStrLn "Bye Bye!"
+                             return ("",penv,env)
+        Right x -> let (nuresult,nupenv,nuenv) = exec x penv env
+                   in do {
+                     putStrLn nuresult;
+                     repl nupenv nuenv [] "stdin"
+                   }
+        Left x -> do putStrLn $ show x
+                     repl penv env [] "stdin"
+
+main = do
+  putStrLn "Welcome to Husky!"
+  repl H.empty H.empty [] "stdin"
