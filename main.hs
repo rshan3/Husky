@@ -15,6 +15,15 @@ data Exp = IntExp Integer
 			| AppExp Exp Exp
 	deriving (Show,Eq)
 
+data Tree a = Node a (Tree a) (Tree a)
+            | Empty
+    deriving Show
+
+add elt Empty = Node elt Empty Empty
+add elt (Node x left right)
+   | elt < x   = Node x (add elt left) right
+   | otherwise = Node x left (add elt right)
+
 
 type Env = [(String,Val)]
 type IntOpEnv = [(String,Integer -> Integer -> Integer)]
