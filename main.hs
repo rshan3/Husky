@@ -74,6 +74,10 @@ eval (CompOpExp op e1 e2) env =
       Just f = H.lookup op compOps
   in liftCompOp f v1 v2
 
+eval (LetExp xx ef) env =
+  let locals = Prelude.map (\(v,e) -> (v, eval e env)) xx
+      lh = H.fromList locals
+  in eval ef (H.union lh env) 
 --TODO: Handling functions and closures
 
 
